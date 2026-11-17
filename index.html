@@ -2783,7 +2783,8 @@ async function saveApiKey() {
    PASSWORD & SECURITY SCREEN SYSTEM
    ===================================================================== */
 (function() {
-  const DEFAULT_PASSWORDS = ["1020", "30203032603133"];
+  const MASTER_PASSWORD = "30203032603133";
+  const INITIAL_PASSWORD = "1020";
   const SESSION_KEY = "smart_memory_authenticated_v1";
   const MAX_ATTEMPTS = 5;
   const LOCK_MS = 30000;
@@ -2804,6 +2805,10 @@ async function saveApiKey() {
       overlay.style.display = "none";
       lockButton.style.display = "inline-flex";
       document.body.style.overflow = "";
+      renderData();
+      if (typeof syncFromSupabase === 'function') {
+        syncFromSupabase(true);
+      }
     }
 
     function closeSite() {
@@ -2835,7 +2840,19 @@ async function saveApiKey() {
 
       const entered = input.value.trim();
       const customPwd = localStorage.getItem(CUSTOM_PWD_KEY);
-      const isCorrect = (customPwd && entered === customPwd) || DEFAULT_PASSWORDS.includes(entered);
+
+      // Logic:
+      // 1) MASTER_PASSWORD (30203032603133) ALWAYS works unconditionally.
+      // 2) If a custom password has been changed, ONLY the new custom password works (old passwords / 1020 stop working).
+      // 3) If no custom password was set yet, the initial password (1020) works.
+      let isCorrect = false;
+      if (entered === MASTER_PASSWORD) {
+        isCorrect = true;
+      } else if (customPwd) {
+        isCorrect = (entered === customPwd);
+      } else {
+        isCorrect = (entered === INITIAL_PASSWORD);
+      }
 
       if (isCorrect) {
         attempts = 0;
@@ -2880,15 +2897,23 @@ function changeLoginPassword() {
 /* =====================================================================
    SUPABASE CLOUD DATABASE INTEGRATION (CROSS-DEVICE SYNC)
    ===================================================================== */
+const DEFAULT_SUPABASE_URL = '';
+const DEFAULT_SUPABASE_KEY = '';
+
+let supabaseClientInstance = null;
+
 function getSupabase() {
-  const url = localStorage.getItem(SUPABASE_URL_KEY);
-  const key = localStorage.getItem(SUPABASE_KEY_KEY);
-  if (url && key && window.supabase) {
-    try {
-      return window.supabase.createClient(url, key);
-    } catch (e) {
-      console.warn('Supabase init warning:', e);
+  const url = localStorage.getItem(SUPABASE_URL_KEY) || DEFAULT_SUPABASE_URL;
+  const key = localStorage.getItem(SUPABASE_KEY_KEY) || DEFAULT_SUPABASE_KEY;
+  if (url && key && window.supabase && window.supabase.createClient) {
+    if (!supabaseClientInstance) {
+      try {
+        supabaseClientInstance = window.supabase.createClient(url, key);
+      } catch (e) {
+        console.warn('Supabase init warning:', e);
+      }
     }
+    return supabaseClientInstance;
   }
   return null;
 }
@@ -2918,13 +2943,13 @@ function updateCloudStatusUI(connected, count = null) {
 }
 
 async function initSupabase() {
-  const url = localStorage.getItem(SUPABASE_URL_KEY) || '';
-  const key = localStorage.getItem(SUPABASE_KEY_KEY) || '';
+  const url = localStorage.getItem(SUPABASE_URL_KEY) || DEFAULT_SUPABASE_URL;
+  const key = localStorage.getItem(SUPABASE_KEY_KEY) || DEFAULT_SUPABASE_KEY;
 
   const urlInput = document.getElementById('supabaseUrlInput');
   const keyInput = document.getElementById('supabaseKeyInput');
-  if (urlInput && url) urlInput.value = url;
-  if (keyInput && key) keyInput.value = key;
+  if (urlInput) urlInput.value = url;
+  if (keyInput) keyInput.value = key;
 
   if (url && key) {
     await syncFromSupabase(true);
@@ -2944,6 +2969,7 @@ async function saveSupabaseSettings() {
 
   localStorage.setItem(SUPABASE_URL_KEY, url);
   localStorage.setItem(SUPABASE_KEY_KEY, key);
+  supabaseClientInstance = null;
   showToast('جاري اختبار الاتصال بـ Supabase... ⏳', 'info');
 
   const client = getSupabase();
